@@ -1,11 +1,14 @@
-import re
-
 from rest_framework import serializers
 
 from .models import Link
 
 
-domain_regex = re.compile(r"(\w){1,30}(\.)(\w){1,5}")
+class GetDomainSerializer(serializers.ModelSerializer):
+    domains = serializers.CharField(source="link", read_only=True)
+
+    class Meta:
+        model = Link
+        fields = ("domains",)
 
 
 class PostLinkSerializer(serializers.ModelSerializer):
@@ -16,17 +19,8 @@ class PostLinkSerializer(serializers.ModelSerializer):
         model = Link
         fields = ("links",)
 
-    def create(self, validated_data):
-        links = validated_data.get("link")
-        for link in links:
-            domain = domain_regex.search(link)
-            Link.objects.create(link=domain.group())
-        return validated_data
-
-
-class GetLinkSerializer(serializers.ModelSerializer):
-    domains = serializers.CharField(source="link", read_only=True)
-
-    class Meta:
-        model = Link
-        fields = ("domains",)
+    def validate(self, data):
+        links = data.get("link")
+        if links == []:
+            raise serializers.ValidationError("В запросе нет ни одной ссылки.")
+        return data

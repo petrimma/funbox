@@ -1,50 +1,66 @@
+import re
+import redis
+
 from datetime import datetime
 
+from funbox.settings import REDIS_HOST, REDIS_PORT
 from rest_framework import status
-from rest_framework import viewsets
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import Link
-from .serializers import GetLinkSerializer, PostLinkSerializer
+from .serializers import GetDomainSerializer, PostLinkSerializer
 
 
-class LinkViewSet(viewsets.ModelViewSet):
+domain_regex = re.compile(r"(\w){1,30}(\.)(\w){1,5}")
 
-    def get_serializer_class(self):
-        if self.action == "list":
-            return GetLinkSerializer
-        else:
-            return PostLinkSerializer
+redis_db = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-    def list(self, request):
-        response = super(LinkViewSet, self).list(request)
-        values = [list(dict.values())[0] for dict in response.data]
-        status = "ok" if response.status_code == 200 else str(
-            response.status_code)
 
-        response.data = {"domains": values, "status": status}
+@api_view(["POST"])
+def post_visited_links(request):
+    visit_date = int(datetime.now().timestamp())
+    serializer = PostLinkSerializer(data=request.data)
+    if serializer.is_valid():
+        links = serializer.validated_data.get("link")
+        for link in links:
+            domain = domain_regex.search(link)
+            if domain is None:
+                return Response(
+                    {"status": f"Неправильный формат ссылки: {link}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-        return response
+            Link.objects.create(visit_date=visit_date, link=domain.group())
+        return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
 
-    def get_queryset(self):
-        params = self.request.query_params
-        time_from_unix = params.get("from")
-        time_to_unix = params.get("to")
-        if time_from_unix is not None and time_to_unix is not None:
-            time_from_dt = datetime.utcfromtimestamp(int(time_from_unix))
-            time_to_dt = datetime.utcfromtimestamp(int(time_to_unix))
-            queryset = Link.objects.order_by().filter(
-                visit_date__gt=time_from_dt, visit_date__lt=time_to_dt
-            ).values("link").distinct()
-        else:
-            queryset = Link.objects.order_by().values("link").distinct()
-        return queryset
+    return Response(
+        {"status": serializer.errors},
+        status=status.HTTP_400_BAD_REQUEST
+    )
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
+
+@api_view(["GET"])
+def get_visited_domains(request):
+    print(request.query_params)
+    try:
+        from_time = int(request.query_params.get("from"))
+        to_time = int(request.query_params.get("to"))
+    except ValueError:
+
         return Response(
-            {"status": "ok"}, status=status.HTTP_201_CREATED, headers=headers
+            {"status": "Параметры from и to должны быть числом."},
+            status=status.HTTP_400_BAD_REQUEST
         )
+    if from_time is not None and to_time is not None:
+        domains = Link.objects.order_by().filter(
+            visit_date__gte=from_time, visit_date__lte=to_time
+        ).values("link").distinct()
+    else:
+        domains = Link.objects.order_by().values("link").distinct()
+    serializer = GetDomainSerializer(domains, many=True)
+    values = [dct["domains"] for dct in serializer.data]
+    return Response(
+        {"domains": values, "status": "ok"},
+        status=status.HTTP_200_OK
+    )

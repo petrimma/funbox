@@ -2,7 +2,7 @@ from django.db import models
 
 
 class Link(models.Model):
-    visit_date = models.DateTimeField("Дата публикации", auto_now_add=True)
+    visit_date = models.IntegerField("Время посещения")
     link = models.CharField("Ссылка", max_length=1000)
 
     class Meta:
