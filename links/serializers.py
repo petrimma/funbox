@@ -3,14 +3,6 @@ from rest_framework import serializers
 from .models import Link
 
 
-class GetDomainSerializer(serializers.ModelSerializer):
-    domains = serializers.CharField(source="link", read_only=True)
-
-    class Meta:
-        model = Link
-        fields = ("domains",)
-
-
 class PostLinkSerializer(serializers.ModelSerializer):
     links = serializers.ListField(
         child=serializers.CharField(), source="link", write_only=True)
